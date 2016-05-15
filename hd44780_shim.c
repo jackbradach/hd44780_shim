@@ -39,11 +39,28 @@ int main(void)
     // layout will not change on the fly.
     hd44780_avr_init(&lcd);
     hd44780_init_lcd(&lcd);
+    #if 0
                                     //    "____________________"
-    hd44780_put_line(&lcd, HD44780_LINE0, "Sweet evil jesus!");
-    hd44780_put_line(&lcd, HD44780_LINE1, "These HD47780s are a");
-    hd44780_put_line(&lcd, HD44780_LINE2, "pain in the ass to");
-    hd44780_put_line(&lcd, HD44780_LINE3, "make go;  Sorted!");
+    hd44780_put_line(&lcd, HD44780_ROW0, "HD47780 shim online!");
+    hd44780_put_line(&lcd, HD44780_ROW1, "Yargle Argle");
+    hd44780_put_line(&lcd, HD44780_ROW2, "Bargle");
+    hd44780_put_line(&lcd, HD44780_ROW3, "Pooooooooooooooooop");
+#endif
+    while(1) {
+    //    uint8_t row = rand() % lcd.row_count;
+    //    uint8_t col = rand() % lcd.column_count;
 
+        for (int r = 0; r < 4; r++) {
+            for (int c = 0; c < lcd.column_count; c++) {
+                hd44780_goto(&lcd, r, c);
+                hd44780_putc(&lcd, '*');
+                hd44780_goto(&lcd, r, c);
+                _delay_ms(150);
+                hd44780_putc(&lcd, ' ');
+            }
+        }
+
+        _delay_ms(100);
+    }
 
 }

@@ -1,9 +1,20 @@
 #ifndef HD44780_H
 #define HD44780_H
 
+/* Delays used by the HD44780 module (microseconds) */
+#define HD44780_INSTRUCTION_WAIT 15
+#define HD44780_CLRHOME_WAIT 1600
+#define HD44780_RESET_WAIT 5000
+#define HD44780_INIT_WAIT 50
+
 #if defined(CONFIG_HD44780_BACKEND_MCP23018)
 #include "mcp23018.h"
 #endif
+
+/* Shims to make it easier to change how we're introducing delays (eg,
+ * busy-wait versus timers).
+ */
+#define hd44780_delay_us(DELAY_US) _delay_us(DELAY_US)
 
 /* LCD Controller Instructions */
 #define HD44780_CLEAR_DISPLAY   _BV(0)
@@ -21,6 +32,8 @@
 
 #define HD44780_DATA_BUSY _BV(7)
 
+
+/* Row offsets for a standard HD44780 */
 #define HD44780_ROW0_START  0x0
 #define HD44780_ROW0_END    0x13
 #define HD44780_ROW1_START  0x40
@@ -29,12 +42,14 @@
 #define HD44780_ROW2_END    0x27
 #define HD44780_ROW3_START  0x54
 #define HD44780_ROW3_END    0x67
+#define HD44780_ROW_LENGTH  20
 
-enum {
-    HD44780_LINE0 = 0x0,
-    HD44780_LINE1 = 0x40,
-    HD44780_LINE2 = 0x14,
-    HD44780_LINE3 = 0x54
+
+enum hd44780_rows {
+    HD44780_ROW0 = 0,
+    HD44780_ROW1,
+    HD44780_ROW2,
+    HD44780_ROW3
 };
 
 enum {
@@ -78,7 +93,10 @@ enum hd44780_backends {
 #if defined(CONFIG_HD44780_BACKEND_MCP23018)
 void hd44780_mcp23018_init(struct hd44780_desc *lcd, uint8_t i2c_addr, enum mcp23018_ports port);
 #endif
+
 void hd44780_put_line(struct hd44780_desc *lcd, uint8_t line, const char *text);
 void hd44780_init_lcd(struct hd44780_desc *lcd);
-
+void hd44780_goto(struct hd44780_desc *lcd, uint8_t row, uint8_t column);
+void hd44780_putc(struct hd44780_desc *lcd, char c);
+void hd44780_puts(struct hd44780_desc *lcd, const char *s);
 #endif

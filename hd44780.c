@@ -9,8 +9,7 @@
 #include "hd44780.h"
 #include "hd44780_avr.h"
 
-#define HD44780_INSTRUCTION_WAIT 40
-#define HD44780_CLRHOME_WAIT 1600
+
 
 #if defined(CONFIG_HD44780_BACKEND_MCP23018)
 #include "mcp23018.h"
@@ -21,13 +20,12 @@ enum hd44780_rs_select {
     HD44780_RS_DATA
 };
 
-/* Prototypes */
-static void hd44780_wait_ready(struct hd44780_desc *lcd);
-void hd44780_write_command(struct hd44780_desc *lcd, uint8_t cmd);
+/* Static prototypes */
 static void hd44780_pulse_enable(struct hd44780_desc *lcd);
-void hd44780_putc(struct hd44780_desc *lcd, char c);
-void hd44780_puts(struct hd44780_desc *lcd, const char *s);
-void hd44780_write_command_8bit(struct hd44780_desc *lcd, uint8_t data);
+static void hd44780_wait_ready(struct hd44780_desc *lcd);
+static void hd44780_write_data(struct hd44780_desc *lcd, uint8_t data);
+static void hd44780_write_command(struct hd44780_desc *lcd, uint8_t cmd);
+static void hd44780_write_command_8bit(struct hd44780_desc *lcd, uint8_t data);
 
 
 static void hd44780_write_data(struct hd44780_desc *lcd, uint8_t data)
@@ -87,60 +85,60 @@ void hd44780_write(struct hd44780_desc *lcd, uint8_t data, uint8_t rs)
     hd44780_write_data(lcd, 0);
 }
 
-void hd44780_write_command(struct hd44780_desc *lcd, uint8_t cmd)
+/* Writes a command (4-bit mode) to the LCD. */
+static void hd44780_write_command(struct hd44780_desc *lcd, uint8_t cmd)
 {
-    hd44780_write_ctrl(lcd, 0);
-
-    /* Clock upper nibble */
-    hd44780_write_data(lcd, (cmd >> 4));
-    hd44780_pulse_enable(lcd);
-
-    /* Clock lower nibble */
-    hd44780_write_data(lcd, (cmd & 0xF));
-    hd44780_pulse_enable(lcd);
-
-    /* Wait for LCD to complete instruction. */
-    hd44780_write_data(lcd, 0x0);
+    hd44780_write(lcd, cmd, 0);
     hd44780_wait_ready(lcd);
 }
 
-void hd44780_write_command_8bit(struct hd44780_desc *lcd, uint8_t data)
+/* Writes a command (8-bit mode) to the LCD.  This is only used during
+ * initialization, prior to kicking over to 4-bit mode.
+ */
+static void hd44780_write_command_8bit(struct hd44780_desc *lcd, uint8_t data)
 {
     hd44780_write_data(lcd, data);
     hd44780_pulse_enable(lcd);
     hd44780_write_data(lcd, 0x0);
 }
 
+/* Attempt to reset the control interface to the LCD.  It starts up
+ * in 8-bit mode, we want 4-bit mode.  The magic it's doing in here
+ * works because the message to switch to 4-bit looks the same
+ * regardless of how many pins you are using.
+ */
 void hd44780_reset(struct hd44780_desc *lcd)
 {
-    _delay_ms(50);
-    hd44780_write_command_8bit(lcd, 0x3);
-    _delay_us(50);
+    /* Safety delay  */
+    hd44780_delay_us(HD44780_RESET_WAIT);
 
     hd44780_write_command_8bit(lcd, 0x3);
-    _delay_us(50);
+    hd44780_delay_us(HD44780_INIT_WAIT);
+
     hd44780_write_command_8bit(lcd, 0x3);
-    _delay_us(50);
+    hd44780_delay_us(HD44780_INIT_WAIT);
+    hd44780_write_command_8bit(lcd, 0x3);
+    hd44780_delay_us(HD44780_INIT_WAIT);
     hd44780_write_command_8bit(lcd, 0x2);
-    _delay_us(50);
+    hd44780_delay_us(HD44780_INIT_WAIT);
     hd44780_write_command(lcd, HD44780_FUNCTION_SET | _BV(3));
 }
 
 void hd44780_init_lcd(struct hd44780_desc *lcd)
 {
     lcd->dir = -1;
-    _delay_ms(40);
+    hd44780_delay_us(HD44780_RESET_WAIT);
 
     /* Set 4-bit interface */
-
     hd44780_reset(lcd);
 
+    /* 4x20, no cursor, 5x8 font. */
     hd44780_write_command(lcd, HD44780_DISPLAY_CONTROL);
     hd44780_write_command(lcd, HD44780_CLEAR_DISPLAY);
-    _delay_us(HD44780_CLRHOME_WAIT);
+    hd44780_delay_us(HD44780_CLRHOME_WAIT);
     hd44780_write_command(lcd, HD44780_ENTRY_MODE | 0x2);
     hd44780_write_command(lcd, HD44780_RETURN_HOME);
-    _delay_us(HD44780_CLRHOME_WAIT);
+    hd44780_delay_us(HD44780_CLRHOME_WAIT);
     hd44780_write_command(lcd, HD44780_DISPLAY_CONTROL | 0x4);
 
 
@@ -159,10 +157,6 @@ void hd44780_clr(void)
 {
 }
 
-void hd44780_goto(uint8_t pos)
-{
-
-}
 
 void hd44780_putc(struct hd44780_desc *lcd, char c)
 {
@@ -184,7 +178,7 @@ static void hd44780_pulse_enable(struct hd44780_desc *lcd)
 
 static void hd44780_wait_ready(struct hd44780_desc *lcd)
 {
-    _delay_us(HD44780_INSTRUCTION_WAIT);
+    hd44780_delay_us(HD44780_INSTRUCTION_WAIT);
 }
 
 void hd44780_put_line(struct hd44780_desc *lcd, uint8_t line, const char *text)
@@ -193,22 +187,22 @@ void hd44780_put_line(struct hd44780_desc *lcd, uint8_t line, const char *text)
 
     switch (line) {
     default:
-    case HD44780_LINE0:
-        line_addr = HD44780_LINE0;
+    case HD44780_ROW0:
+        line_addr = HD44780_ROW0_START;
         break;
-    case HD44780_LINE1:
-        line_addr = HD44780_LINE1;
+    case HD44780_ROW1:
+        line_addr = HD44780_ROW1_START;
         break;
-    case HD44780_LINE2:
-        line_addr = HD44780_LINE2;
+    case HD44780_ROW2:
+        line_addr = HD44780_ROW2_START;
         break;
-    case HD44780_LINE3:
-        line_addr = HD44780_LINE3;
+    case HD44780_ROW3:
+        line_addr = HD44780_ROW3_START;
         break;
     }
 
     hd44780_write_command(lcd, HD44780_SET_DDRAM_ADDR | line_addr);
-    _delay_ms(1);
+    hd44780_delay_us(HD44780_CLRHOME_WAIT);
 
     for (uint8_t i = 0; i < lcd->column_count; i++) {
         /* If we hit a NULL terminator first, we can skip the rest. */
@@ -219,21 +213,43 @@ void hd44780_put_line(struct hd44780_desc *lcd, uint8_t line, const char *text)
     }
 }
 
-#if 0
 void hd44780_goto(struct hd44780_desc *lcd, uint8_t row, uint8_t column)
 {
-    uint8_t raw_offset = (row * lcd->column_count) + column;
     uint8_t offset;
 
-    if (raw_offset < HD44780_ROW0_END)
-        offset = raw_offset;
-    else if (raw_offset < HD44780_ROW1_END)
-        offset =
-    else if (raw_offset < HD44780_ROW2_END)
+    /* Wrap the column position in the offset if necessary.  There isn't
+     * anything all that sensible to do here when provided an out-of-range
+     * column value.  Wrapping should be a hint that this is where to check.
+     */
+    if (column < lcd->column_count)
+        offset = column;
     else
-        hd44780_write_command(lcd, HD44780_SET_DDRAM_ADDR | offset)
+        offset = column % lcd->column_count;
+
+    /* Rows are simply looked up and added to the offset.  Again, there's
+     * not a lot to be done if someone passes in row hojillion, so it'll
+     * treat any out of range the same as row zero.
+     */
+    switch (row) {
+        default:
+        case HD44780_ROW0:
+            offset += HD44780_ROW0_START;
+            break;
+        case HD44780_ROW1:
+            offset += HD44780_ROW1_START;
+            break;
+        case HD44780_ROW2:
+            offset += HD44780_ROW2_START;
+            break;
+        case HD44780_ROW3:
+            offset += HD44780_ROW3_START;
+            break;
+    }
+
+    hd44780_write_command(lcd, HD44780_SET_DDRAM_ADDR | offset);
 }
 
+#if 0
 PROCESS(hd44780_test, "hd44780 Test");
 PROCESS_THREAD(hd44780_test, ev, data)
 {
@@ -251,10 +267,10 @@ PROCESS_THREAD(hd44780_test, ev, data)
     printf("LCD init!\n");
     hd44780_init_lcd(&lcd);
                                     //    "____________________"
-    hd44780_put_line(&lcd, HD44780_LINE0, "Sweet evil jesus!");
-    hd44780_put_line(&lcd, HD44780_LINE1, "These HD47780s are a");
-    hd44780_put_line(&lcd, HD44780_LINE2, "pain in the ass to");
-    hd44780_put_line(&lcd, HD44780_LINE3, "make go;  Sorted!");
+    hd44780_put_line(&lcd, HD44780_ROW0, "Sweet evil jesus!");
+    hd44780_put_line(&lcd, HD44780_ROW1, "These HD47780s are a");
+    hd44780_put_line(&lcd, HD44780_ROW2, "pain in the ass to");
+    hd44780_put_line(&lcd, HD44780_ROW3, "make go;  Sorted!");
 
     printf("done.\n");
 
