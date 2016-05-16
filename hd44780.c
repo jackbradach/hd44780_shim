@@ -9,12 +9,6 @@
 #include "hd44780.h"
 #include "hd44780_avr.h"
 
-
-
-#if defined(CONFIG_HD44780_BACKEND_MCP23018)
-#include "mcp23018.h"
-#endif
-
 enum hd44780_rs_select {
     HD44780_RS_INST = 0,
     HD44780_RS_DATA
@@ -34,12 +28,6 @@ static void hd44780_write_data(struct hd44780_desc *lcd, uint8_t data)
     case HD44780_BACKEND_AVR_PORT:
         hd44780_avr_write_data(lcd, data);
         break;
-#if defined(CONFIG_HD44780_BACKEND_MCP23018)
-    /* Write a byte to the LCD through the MCP23018. */
-    case HD44780_BACKEND_MCP23018:
-        mcp23018_write(&lcd->mcp23018, lcd->iodir_reg, data);
-        break;
-#endif
     default:
         /* NARF! */
         break;
@@ -52,17 +40,11 @@ static void hd44780_write_ctrl(struct hd44780_desc *lcd, uint8_t ctrl)
     case HD44780_BACKEND_AVR_PORT:
         hd44780_avr_write_ctrl(lcd, ctrl);
         break;
-#if defined(CONFIG_HD44780_BACKEND_MCP23018)
-    case HD44780_BACKEND_MCP23018:
-        mcp23018_write(&lcd->mcp23018, lcd->iodir_reg, ctrl);
-        break;
-#endif
     default:
         /* NARF! */
         break;
     }
 }
-
 
 /* Writes a single byte (of type register or instruction) to the LCD. */
 void hd44780_write(struct hd44780_desc *lcd, uint8_t data, uint8_t rs)
@@ -102,32 +84,14 @@ static void hd44780_write_command_8bit(struct hd44780_desc *lcd, uint8_t data)
     hd44780_write_data(lcd, 0x0);
 }
 
-/* Attempt to reset the control interface to the LCD.  It starts up
- * in 8-bit mode, we want 4-bit mode.  The magic it's doing in here
- * works because the message to switch to 4-bit looks the same
- * regardless of how many pins you are using.
+
+/* Initialize the HD47780 LCD controller.  This sends the required
+ * commands to kick it from 8-bit to 4-bit mode and clear the display.
  */
-void hd44780_reset(struct hd44780_desc *lcd)
-{
-    /* Safety delay  */
-    hd44780_delay_us(HD44780_RESET_WAIT);
-
-    hd44780_write_command_8bit(lcd, 0x3);
-    hd44780_delay_us(HD44780_INIT_WAIT);
-
-    hd44780_write_command_8bit(lcd, 0x3);
-    hd44780_delay_us(HD44780_INIT_WAIT);
-    hd44780_write_command_8bit(lcd, 0x3);
-    hd44780_delay_us(HD44780_INIT_WAIT);
-    hd44780_write_command_8bit(lcd, 0x2);
-    hd44780_delay_us(HD44780_INIT_WAIT);
-    hd44780_write_command(lcd, HD44780_FUNCTION_SET | _BV(3));
-}
-
 void hd44780_init_lcd(struct hd44780_desc *lcd)
 {
-    lcd->dir = -1;
-    hd44780_delay_us(HD44780_RESET_WAIT);
+    /* Safety delay to make sure power is up. */
+    hd44780_delay_us(HD44780_RESET_WAIT_MS);
 
     /* Set 4-bit interface */
     hd44780_reset(lcd);
@@ -135,35 +99,68 @@ void hd44780_init_lcd(struct hd44780_desc *lcd)
     /* 4x20, no cursor, 5x8 font. */
     hd44780_write_command(lcd, HD44780_DISPLAY_CONTROL);
     hd44780_write_command(lcd, HD44780_CLEAR_DISPLAY);
-    hd44780_delay_us(HD44780_CLRHOME_WAIT);
+    hd44780_delay_ms(HD44780_CLRHOME_WAIT_MS);
     hd44780_write_command(lcd, HD44780_ENTRY_MODE | 0x2);
     hd44780_write_command(lcd, HD44780_RETURN_HOME);
-    hd44780_delay_us(HD44780_CLRHOME_WAIT);
+    hd44780_delay_us(HD44780_INSTRUCTION_WAIT);
     hd44780_write_command(lcd, HD44780_DISPLAY_CONTROL | 0x4);
-
 
     // XXX - hardcoded constants for testing!
     lcd->column_count = 20;
     lcd->row_count = 4;
-    lcd->row = 0;
-    lcd->column = 0;
 }
 
-void hd44780_home(void)
+/* Attempt to reset the control interface to the LCD.  It starts up
+ * in 8-bit mode, we want 4-bit mode.  The magic it's doing in here
+ * works because the message to switch to 4-bit looks the same
+ * regardless of how many pins you are using.
+ */
+void hd44780_reset(struct hd44780_desc *lcd)
 {
+    /* We should be in 8-bit mode after reset, but in case we're in
+     * an unknown state, flip it first to 8-bit mode and then to
+     * 4-bit.
+     */
+    hd44780_write_command_8bit(lcd, 0x3);
+    hd44780_delay_us(HD44780_INIT_WAIT);
+    hd44780_write_command_8bit(lcd, 0x3);
+    hd44780_delay_us(HD44780_INIT_WAIT);
+    hd44780_write_command_8bit(lcd, 0x3);
+    hd44780_delay_us(HD44780_INIT_WAIT);
+    hd44780_write_command_8bit(lcd, 0x2);
+    hd44780_delay_us(HD44780_INIT_WAIT);
+
+    /* After this, we'll be in 4-bit mode. */
+    hd44780_write_command(lcd, HD44780_FUNCTION_SET | _BV(3));
 }
 
-void hd44780_clr(void)
+/* Clear display and set memory pointer to 0x0 */
+void hd44780_clr(struct hd44780_desc *lcd)
 {
+    hd44780_write_command(lcd, HD44780_CLEAR_DISPLAY);
+    hd44780_delay_ms(HD44780_CLRHOME_WAIT_MS);
+    hd44780_write_command(lcd, HD44780_RETURN_HOME);
+    hd44780_delay_us(HD44780_INSTRUCTION_WAIT);
 }
 
+/* Pulse the enable signal to the LCD controller, latching
+ * the current instruction / data on the falling edge.
+ */
+static void hd44780_pulse_enable(struct hd44780_desc *lcd)
+{
+    hd44780_avr_pulse_enable(lcd);
+}
 
+/* Put a single character to the LCD */
 void hd44780_putc(struct hd44780_desc *lcd, char c)
 {
     hd44780_write(lcd, c, HD44780_RS_DATA);
     hd44780_wait_ready(lcd);
 }
 
+/* Put a string of characters to the LCD.  No checking is done
+ * on bounds!
+ */
 void hd44780_puts(struct hd44780_desc *lcd, const char *s)
 {
     char c;
@@ -171,39 +168,12 @@ void hd44780_puts(struct hd44780_desc *lcd, const char *s)
         hd44780_putc(lcd, c);
 }
 
-static void hd44780_pulse_enable(struct hd44780_desc *lcd)
-{
-    hd44780_avr_pulse_enable(lcd);
-}
-
-static void hd44780_wait_ready(struct hd44780_desc *lcd)
-{
-    hd44780_delay_us(HD44780_INSTRUCTION_WAIT);
-}
-
+/* Copy a string of text from a buffer to a line on the LCD.  If the length
+ * of the string (not including \0 terminator) is longer than the LCD line,
+ * it'll be truncated.
+ */
 void hd44780_put_line(struct hd44780_desc *lcd, uint8_t line, const char *text)
 {
-#if 0
-    uint8_t line_addr;
-
-    switch (line) {
-    default:
-    case HD44780_ROW0:
-        line_addr = HD44780_ROW0_START;
-        break;
-    case HD44780_ROW1:
-        line_addr = HD44780_ROW1_START;
-        break;
-    case HD44780_ROW2:
-        line_addr = HD44780_ROW2_START;
-        break;
-    case HD44780_ROW3:
-        line_addr = HD44780_ROW3_START;
-        break;
-    }
-    hd44780_write_command(lcd, HD44780_SET_DDRAM_ADDR | line_addr);
-    hd44780_delay_us(HD44780_CLRHOME_WAIT);
-    #endif
     hd44780_goto(lcd, line, 0);
 
     for (uint8_t i = 0; i < lcd->column_count; i++) {
@@ -215,6 +185,17 @@ void hd44780_put_line(struct hd44780_desc *lcd, uint8_t line, const char *text)
     }
 }
 
+/* Wait for the hd44780 to become ready after an instruction.
+ * If the R/W# line were connected, this would read and check
+ * the busy bit.  Without it, we simply wait the delay from
+ * the datasheet to guarantee that the instruction has completed.
+ */
+static void hd44780_wait_ready(struct hd44780_desc *lcd)
+{
+    hd44780_delay_us(HD44780_INSTRUCTION_WAIT);
+}
+
+/* Set the LCD's memory pointer (cursor) to a particular row/column. */
 void hd44780_goto(struct hd44780_desc *lcd, uint8_t row, uint8_t column)
 {
     uint8_t offset;
@@ -250,38 +231,3 @@ void hd44780_goto(struct hd44780_desc *lcd, uint8_t row, uint8_t column)
 
     hd44780_write_command(lcd, HD44780_SET_DDRAM_ADDR | offset);
 }
-
-#if 0
-PROCESS(hd44780_test, "hd44780 Test");
-PROCESS_THREAD(hd44780_test, ev, data)
-{
-    PROCESS_BEGIN();
-
-    static struct etimer et;
-    static struct hd44780_desc lcd;
-
-    // TODO: this should initialize from a static structure; the hardware
-    // layout will not change on the fly.
-#if defined(CONFIG_HD44780_BACKEND_MCP23018)
-    hd44780_init(&lcd, MCP23018_I2C_BASE_ADDR | (0x7 << 1), MCP23018_PORTA);
-#endif
-    hd44780_avr_init(&lcd, HD44780_AVR_PORT_B);
-    printf("LCD init!\n");
-    hd44780_init_lcd(&lcd);
-                                    //    "____________________"
-    hd44780_put_line(&lcd, HD44780_ROW0, "Sweet evil jesus!");
-    hd44780_put_line(&lcd, HD44780_ROW1, "These HD47780s are a");
-    hd44780_put_line(&lcd, HD44780_ROW2, "pain in the ass to");
-    hd44780_put_line(&lcd, HD44780_ROW3, "make go;  Sorted!");
-
-    printf("done.\n");
-
-    while(1) {
-
-        etimer_set(&et, CLOCK_SECOND);
-        PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&et));
-    }
-
-    PROCESS_END();
-}
-#endif
