@@ -139,7 +139,7 @@ void hd44780_slide_right(struct hd44780_desc *lcd, PGM_P const *old_text, PGM_P 
 
 const char temp_txt_line0[] PROGMEM = "+---[ Thermals ]---+";
 const char temp_txt_line1[] PROGMEM = "| T_ambient:       |";
-const char temp_txt_line2[] PROGMEM = "|  Is cold, bitch! |";
+const char temp_txt_line2[] PROGMEM = "|  Somewhat cold!  |";
 const char temp_txt_line3[] PROGMEM = "+-------[02]-------+";
 
 PGM_P const temp_txt[] PROGMEM = {
