@@ -183,6 +183,7 @@ static void hd44780_wait_ready(struct hd44780_desc *lcd)
 
 void hd44780_put_line(struct hd44780_desc *lcd, uint8_t line, const char *text)
 {
+#if 0
     uint8_t line_addr;
 
     switch (line) {
@@ -200,9 +201,10 @@ void hd44780_put_line(struct hd44780_desc *lcd, uint8_t line, const char *text)
         line_addr = HD44780_ROW3_START;
         break;
     }
-
     hd44780_write_command(lcd, HD44780_SET_DDRAM_ADDR | line_addr);
     hd44780_delay_us(HD44780_CLRHOME_WAIT);
+    #endif
+    hd44780_goto(lcd, line, 0);
 
     for (uint8_t i = 0; i < lcd->column_count; i++) {
         /* If we hit a NULL terminator first, we can skip the rest. */
