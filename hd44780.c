@@ -16,11 +16,11 @@ enum hd44780_rs_select {
 
 /* Static prototypes */
 static void hd44780_pulse_enable(struct hd44780_desc *lcd);
+static void hd44780_reset(struct hd44780_desc *lcd);
 static void hd44780_wait_ready(struct hd44780_desc *lcd);
 static void hd44780_write_data(struct hd44780_desc *lcd, uint8_t data);
 static void hd44780_write_command(struct hd44780_desc *lcd, uint8_t cmd);
 static void hd44780_write_command_8bit(struct hd44780_desc *lcd, uint8_t data);
-
 
 static void hd44780_write_data(struct hd44780_desc *lcd, uint8_t data)
 {
@@ -115,7 +115,7 @@ void hd44780_init_lcd(struct hd44780_desc *lcd)
  * works because the message to switch to 4-bit looks the same
  * regardless of how many pins you are using.
  */
-void hd44780_reset(struct hd44780_desc *lcd)
+static void hd44780_reset(struct hd44780_desc *lcd)
 {
     /* We should be in 8-bit mode after reset, but in case we're in
      * an unknown state, flip it first to 8-bit mode and then to
